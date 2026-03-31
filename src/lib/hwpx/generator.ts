@@ -1,24 +1,24 @@
 /**
  * HWPX file generator — pure TypeScript, no Python dependency.
  * Builds a valid HWPX (ZIP) from question results data.
+ * Template files are inlined (no fs.readFileSync) for serverless compatibility.
  */
 import JSZip from 'jszip';
-import path from 'path';
-import fs from 'fs';
 import { latexToHwpEq, eqHeight, eqWidth } from './latex-to-hwp';
 import { QuestionWithSimilars } from '@/lib/types';
-
-// ── Template file loader ──────────────────────────────────────────────────────
-
-const TMPL_DIR = path.join(process.cwd(), 'src', 'lib', 'hwpx', 'templates');
-
-function tmpl(relPath: string): Buffer {
-  return fs.readFileSync(path.join(TMPL_DIR, relPath));
-}
-
-function tmplStr(relPath: string): string {
-  return fs.readFileSync(path.join(TMPL_DIR, relPath), 'utf-8');
-}
+import {
+  versionXml,
+  mimetypeStr,
+  prvTextTxt,
+  containerXml,
+  containerRdf,
+  manifestXml,
+  settingsXml,
+  contentHpf,
+  section0Xml,
+  headerXml,
+  prvImagePngB64,
+} from './templates-inline';
 
 // ── XML helpers ───────────────────────────────────────────────────────────────
 
@@ -157,7 +157,7 @@ function splitSentences(text: string): string[] {
 // ── Section XML builder ───────────────────────────────────────────────────────
 
 function buildSection(results: QuestionWithSimilars[]): string {
-  const sectionTemplate = tmplStr('Contents/section0.xml');
+  const sectionTemplate = section0Xml;
 
   // Insert after the first </hp:p>
   const insertAt = sectionTemplate.indexOf('</hp:p>') + '</hp:p>'.length;
@@ -225,7 +225,7 @@ function buildContentHpf(title: string): string {
   const iso = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
   const korean = `${now.getFullYear()}년 ${String(now.getMonth() + 1).padStart(2, '0')}월 ${String(now.getDate()).padStart(2, '0')}일`;
 
-  return tmplStr('Contents/content.hpf')
+  return contentHpf
     .replace('<opf:title/>', `<opf:title>${escXml(title)}</opf:title>`)
     .replace('name="CreatedDate" content="text"', `name="CreatedDate" content="${iso}"`)
     .replace('name="ModifiedDate" content="text"', `name="ModifiedDate" content="${iso}"`)
@@ -238,26 +238,26 @@ export async function generateHwpx(results: QuestionWithSimilars[]): Promise<Buf
   resetCounters();
 
   const sectionXml = buildSection(results);
-  const contentHpf = buildContentHpf('유사문제 생성 결과');
+  const builtContentHpf = buildContentHpf('유사문제 생성 결과');
 
   const zip = new JSZip();
 
   // mimetype MUST be first, uncompressed
-  zip.file('mimetype', tmpl('mimetype'), { compression: 'STORE' });
+  zip.file('mimetype', mimetypeStr, { compression: 'STORE' });
 
   // Static template files
-  zip.file('version.xml',              tmplStr('version.xml'));
-  zip.file('settings.xml',             tmplStr('settings.xml'));
-  zip.file('META-INF/container.xml',   tmplStr('META-INF/container.xml'));
-  zip.file('META-INF/container.rdf',   tmplStr('META-INF/container.rdf'));
-  zip.file('META-INF/manifest.xml',    tmplStr('META-INF/manifest.xml'));
-  zip.file('Preview/PrvText.txt',      tmplStr('Preview/PrvText.txt'));
-  zip.file('Preview/PrvImage.png',     tmpl('Preview/PrvImage.png'));
+  zip.file('version.xml',            versionXml);
+  zip.file('settings.xml',           settingsXml);
+  zip.file('META-INF/container.xml', containerXml);
+  zip.file('META-INF/container.rdf', containerRdf);
+  zip.file('META-INF/manifest.xml',  manifestXml);
+  zip.file('Preview/PrvText.txt',    prvTextTxt);
+  zip.file('Preview/PrvImage.png',   Buffer.from(prvImagePngB64, 'base64'));
 
   // Dynamic content
-  zip.file('Contents/header.xml',      tmplStr('Contents/header.xml'));
-  zip.file('Contents/content.hpf',     contentHpf);
-  zip.file('Contents/section0.xml',    sectionXml);
+  zip.file('Contents/header.xml',    headerXml);
+  zip.file('Contents/content.hpf',   builtContentHpf);
+  zip.file('Contents/section0.xml',  sectionXml);
 
   const buffer = await zip.generateAsync({
     type: 'nodebuffer',
