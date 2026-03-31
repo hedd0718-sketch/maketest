@@ -1,9 +1,10 @@
 [build]
-  command = "next build --no-turbopack"
+  command = "npm run build"
   publish = ".next"
 
 [build.environment]
   NODE_VERSION = "20"
+  NEXT_TURBOPACK = "false"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
