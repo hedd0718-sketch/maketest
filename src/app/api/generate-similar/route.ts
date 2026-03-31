@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+
+export const maxDuration = 60;
 import { makeAnthropicClient, MODEL, GENERATION_PROMPT, normalizeLatex } from '@/lib/anthropic';
 import { ExtractedQuestion, QuestionWithSimilars, SimilarQuestion } from '@/lib/types';
 

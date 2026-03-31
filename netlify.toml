@@ -6,5 +6,8 @@
   NODE_VERSION = "20"
   NEXT_TURBOPACK = "false"
 
+[functions]
+  timeout = 60
+
 [[plugins]]
   package = "@netlify/plugin-nextjs"

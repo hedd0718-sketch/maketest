@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+
+export const maxDuration = 60;
 import { makeAnthropicClient, MODEL, EXTRACTION_PROMPT, normalizeLatex } from '@/lib/anthropic';
 import { bufferToBase64, MAX_FILE_SIZE } from '@/lib/image-utils';
 import { ExtractedQuestion } from '@/lib/types';
