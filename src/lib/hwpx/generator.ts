@@ -51,16 +51,19 @@ function makeEquationRun(latex: string, charPrIDRef = 0): string {
   const height = eqHeight(script);
   const width  = eqWidth(script);
   const id     = nextEqId();
+  // 분수/sqrt처럼 키가 큰 수식은 중앙 정렬(50%), 인라인 수식은 한글 기준선(75%) 맞춤
+  const isTall = height > 1400;
+  const baseLine = isTall ? 50 : 75;
 
   return (
     `<hp:run charPrIDRef="${charPrIDRef}">` +
     `<hp:equation id="${id}" zOrder="0" numberingType="EQUATION" ` +
     `textWrap="TOP_AND_BOTTOM" textFlow="BOTH_SIDES" lock="0" dropcapstyle="None" ` +
-    `version="Equation Version 60" baseLine="65" textColor="#000000" ` +
+    `version="Equation Version 60" baseLine="${baseLine}" textColor="#000000" ` +
     `baseUnit="1100" lineMode="CHAR" font="HYhwpEQ">` +
     `<hp:sz width="${width}" widthRelTo="ABSOLUTE" height="${height}" heightRelTo="ABSOLUTE" protect="0"/>` +
-    `<hp:pos treatAsChar="1" affectLSpacing="0" flowWithText="1" allowOverlap="0" ` +
-    `holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="TOP" horzAlign="LEFT" ` +
+    `<hp:pos treatAsChar="1" affectLSpacing="1" flowWithText="1" allowOverlap="0" ` +
+    `holdAnchorAndSO="0" vertRelTo="PARA" horzRelTo="PARA" vertAlign="CENTER" horzAlign="LEFT" ` +
     `vertOffset="0" horzOffset="0"/>` +
     `<hp:outMargin left="56" right="56" top="0" bottom="0"/>` +
     `<hp:shapeComment>수식입니다.</hp:shapeComment>` +
@@ -83,6 +86,7 @@ function makePara(text: string, paraPrIDRef = 0, charPrIDRef = 0): string {
   const pid = nextPid();
   const runs: string[] = [];
   let last = 0;
+  let maxEqHeight = 0; // 단락 내 최대 수식 높이 추적
 
   const mathRe = /\$\$([^$]+?)\$\$|\$([^$\n]+?)\$/g;
   let m: RegExpExecArray | null;
@@ -96,6 +100,8 @@ function makePara(text: string, paraPrIDRef = 0, charPrIDRef = 0): string {
     }
     const latex = m[1] ?? m[2];
     runs.push(makeEquationRun(latex, charPrIDRef));
+    const script = latexToHwpEq(latex);
+    maxEqHeight = Math.max(maxEqHeight, eqHeight(script));
     last = m.index + m[0].length;
   }
 
@@ -110,10 +116,21 @@ function makePara(text: string, paraPrIDRef = 0, charPrIDRef = 0): string {
     runs.push(`<hp:run charPrIDRef="${charPrIDRef}"><hp:t/></hp:run>`);
   }
 
+  // linesegarray: 수식 높이에 맞게 줄 높이를 직접 지정 (더블클릭 효과와 동일)
+  // vertsize = max(수식높이 + 여백, 기본 줄높이 1600)
+  // textheight=1000(10pt), baseline=850, spacing=600, horzsize=42520(A4 폭 기준)
+  const NORMAL_LINE = 1600;
+  const vertsize = maxEqHeight > 0 ? Math.max(maxEqHeight + 400, NORMAL_LINE) : NORMAL_LINE;
+  const lineseg = `<hp:linesegarray>` +
+    `<hp:lineseg textpos="0" vertpos="0" vertsize="${vertsize}" textheight="1000" ` +
+    `baseline="850" spacing="600" horzpos="0" horzsize="42520" flags="393216"/>` +
+    `</hp:linesegarray>`;
+
   return (
     `<hp:p id="${pid}" paraPrIDRef="${paraPrIDRef}" styleIDRef="0" ` +
     `pageBreak="0" columnBreak="0" merged="0">` +
     runs.join('') +
+    lineseg +
     `</hp:p>`
   );
 }
@@ -240,6 +257,8 @@ export async function generateHwpx(results: QuestionWithSimilars[]): Promise<Buf
   const sectionXml = buildSection(results);
   const builtContentHpf = buildContentHpf('유사문제 생성 결과');
 
+  const builtHeaderXml = headerXml;
+
   const zip = new JSZip();
 
   // mimetype MUST be first, uncompressed
@@ -255,7 +274,7 @@ export async function generateHwpx(results: QuestionWithSimilars[]): Promise<Buf
   zip.file('Preview/PrvImage.png',   Buffer.from(prvImagePngB64, 'base64'));
 
   // Dynamic content
-  zip.file('Contents/header.xml',    headerXml);
+  zip.file('Contents/header.xml',    builtHeaderXml);
   zip.file('Contents/content.hpf',   builtContentHpf);
   zip.file('Contents/section0.xml',  sectionXml);
 
