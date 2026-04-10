@@ -58,9 +58,10 @@ export function makeAnthropicClient() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 }
 
-// Use haiku for all API calls (cheapest, fast enough)
+// generate-similar: haiku (fast, cheap)
+// extract-questions: sonnet (better vision/OCR for Korean math exams)
 export const MODEL = 'claude-haiku-4-5';
-export const VISION_MODEL = 'claude-haiku-4-5';
+export const VISION_MODEL = 'claude-sonnet-4-5';
 
 export const EXTRACTION_PROMPT = `You are an expert exam analyzer. Extract every question from this exam document.
 

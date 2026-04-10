@@ -24,7 +24,9 @@ function SimilarItem({ similar, idx }: { similar: QuestionWithSimilars['similars
       </div>
 
       {similar.explanation && (
-        <p className="text-xs text-on-surface-variant italic pl-1 font-label">{similar.explanation}</p>
+        <p className="text-xs text-on-surface-variant italic pl-1 font-label">
+          <MathRenderer text={similar.explanation} />
+        </p>
       )}
 
       <div className="space-y-2">

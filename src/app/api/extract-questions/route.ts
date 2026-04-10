@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
     const anthropic = makeAnthropicClient();
     const response = await anthropic.messages.create({
       model: VISION_MODEL,
-      max_tokens: 2048,
+      max_tokens: 4096,
       messages: [
         {
           role: 'user',
