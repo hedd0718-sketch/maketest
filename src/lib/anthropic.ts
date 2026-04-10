@@ -1,17 +1,57 @@
 import Anthropic from '@anthropic-ai/sdk';
 
 /**
- * JSON.parse converts \f→0x0C, \b→0x08, \a→0x07 etc. inside strings.
- * This restores those control characters back to their LaTeX backslash sequences
- * so MathRenderer / KaTeX can render them correctly.
+ * Safely parse a JSON string that may contain LaTeX backslash commands.
+ *
+ * Problem: JSON.parse converts \f→0x0C (form feed), \b→0x08 (backspace), etc.
+ * When Claude writes \frac, \beta, \bar etc. with single backslashes in JSON,
+ * the \f and \b are consumed as control characters and the LaTeX is destroyed.
+ *
+ * Solution: Before JSON.parse, protect LaTeX commands whose prefix collides
+ * with a JSON escape sequence (\f, \b, \n, \r, \t).
+ * We detect these by checking if the backslash+char is followed by more
+ * alphabetic characters (e.g. \frac, \beta, \neq, \rightarrow, \text, \tan).
+ */
+export function safeJsonParse<T>(raw: string): T {
+  // Step 1: Protect LaTeX commands that start with JSON escape prefixes.
+  // \f + letter(s) → \\f + letter(s)   (e.g. \frac, \flat, \forall)
+  // \b + letter(s) → \\b + letter(s)   (e.g. \beta, \bar, \binom, \boxed)
+  // \n + letter(s) → \\n + letter(s)   (e.g. \neq, \neg, \not, \nu)
+  // \r + letter(s) → \\r + letter(s)   (e.g. \right, \rangle, \rho)
+  // \t + letter(s) → \\t + letter(s)   (e.g. \text, \theta, \times, \tan)
+  const protected_ = raw.replace(
+    /(?<!\\)\\([fbnrt])([a-zA-Z])/g,
+    '\\\\$1$2'
+  );
+
+  // Step 2: Escape any remaining lone backslashes not part of valid JSON escapes
+  const escaped = protected_.replace(
+    /(?<!\\)\\(?!["\\/bfnrtu\\])/g,
+    '\\\\'
+  );
+
+  return JSON.parse(escaped);
+}
+
+/**
+ * Post-process LaTeX strings: restore any remaining control characters
+ * and normalize line endings.
  */
 export function normalizeLatex(s: string): string {
   return s
     .replace(/\x0c/g, '\\f')  // form feed → \f  (from \frac)
     .replace(/\x08/g, '\\b')  // backspace → \b  (from \beta)
-    .replace(/\x07/g, '\\a')  // bell      → \a  (from \alpha — though \alpha handled differently)
+    .replace(/\x07/g, '\\a')  // bell      → \a  (from \alpha)
     .replace(/\x0b/g, '\\v')  // vert tab  → \v
-    .replace(/\r\n?/g, '\n'); // normalize line endings
+    .replace(/\r\n?/g, '\n')  // normalize line endings
+
+    // Fix over-grouped exponents: x^{2(x-1)(x-2)} → x^2(x-1)(x-2)
+    // Pattern: ^{digit(s) followed by paren-factor(s)} → the digit is the exponent, rest is multiplication
+    .replace(/\^\{(\d+)\s*((?:\([^(){}]*\))+)\}/g, '^$1$2')
+
+    // Fix \{expr\}^N → {\{expr\}}^N  so the superscript applies to the whole braced group
+    // e.g.  \{P(x)\}^2  →  {\{P(x)\}}^2   renders as {P(x)}²  correctly in KaTeX
+    .replace(/\\\{([^{}\\]+)\\\}\^(\{[^}]+\}|\w+)/g, '{\\{$1\\}}^$2');
 }
 
 export function makeAnthropicClient() {
@@ -37,11 +77,28 @@ CRITICAL LaTeX rules — wrap ALL of the following in $...$:
 - Function notation: $f(x)$, $g(x)$, $h(x)$, $f'(x)$
 - Greek letters: $\\alpha$, $\\beta$, $\\pi$, $\\theta$ etc.
 - Any expression with operators: $x^2 + ax + b$, $\\frac{3}{5}$, $\\sqrt{2}$
+
+CRITICAL superscript/subscript rules — DO NOT over-group:
+- Use curly braces {} ONLY for multi-character exponents/subscripts that are truly grouped.
+- $x^2 - 1$ is correct (exponent is just 2, then minus 1). NEVER write $x^{2-1}$.
+- $x^2 + x + 1$ is correct. NEVER write $x^{2+x+1}$.
+- $x^{2n}$ is correct ONLY when 2n is the full exponent (meaning "x to the 2n").
+- $(g(x))^2 - x^2$ is correct. NEVER write $(g(x))^{2-x^2}$.
+- $a_{n+1}$ is correct when the entire subscript is "n+1".
+- WRONG examples to AVOID:
+  - $x^{2-1}$ when you mean "$x$ squared minus 1" → correct: $x^2 - 1$
+  - $x^{2+x+1}$ when you mean "$x$ squared plus $x$ plus 1" → correct: $x^2 + x + 1$
+  - $(g(x))^{2-x^2}$ when you mean "$(g(x))$ squared minus $x$ squared" → correct: $(g(x))^2 - x^2$
+  - $x^{2(x-1)}(x-2)$ when you mean "$x$ squared times $(x-1)$ times $(x-2)$" → correct: $x^2(x-1)(x-2)$
+  - $x^{2(x-2)(x-1)}$ when you mean "$x^2 \cdot (x-2)(x-1)$" → correct: $x^2(x-2)(x-1)$
+  - KEY RULE: if after the digit exponent comes a parenthesized factor like $(x-1)$, it is MULTIPLICATION not part of the exponent. Write $x^2(x-1)$ NOT $x^{2(x-1)}$.
+
 - Examples of correct output:
   - "함수 $f(x) = x^2 + ax + b$의 그래프는..." (NOT "함수 f(x) = x^2+ax+b의")
   - "$x$축과 $y$축이 만나는 점" (NOT "x축과 y축이 만나는 점")
   - "실수 $a$, $b$에 대하여 $a+b$의 값은?" (NOT "실수 a, b에 대하여")
   - "두 실근 $\\alpha$, $\\beta$를 갖는다" (NOT "두 실근 α, β를")
+  - "$f(x)$를 $x^2 - 1$로 나누면" (NOT "$f(x)$를 $x^{2-1}$로 나누면")
 - Include answer choices (①②③④⑤ or A/B/C/D) as part of the question text
 - Number questions sequentially starting from 1
 - Do NOT include answer keys or solutions
@@ -63,6 +120,12 @@ Rules for questions:
   - Correct: "함수 $f(x)$를 $f(x) = \\frac{1}{2}x^2$라 할 때, $x$축과의 교점"
   - Wrong:   "함수 f(x)를 f(x) = 1/2 x^2라 할 때, x축과의 교점"
   - Every $x$, $y$, $a$, $b$, $n$, $\\alpha$, $\\beta$ must be wrapped individually
+- CRITICAL superscript/subscript grouping — DO NOT over-group:
+  - $x^2 - 1$ is correct. NEVER write $x^{2-1}$ (that means "x to the power of 2-1").
+  - $x^2 + x + 1$ is correct. NEVER write $x^{2+x+1}$.
+  - $(g(x))^2 - x^2$ is correct. NEVER write $(g(x))^{2-x^2}$.
+  - $x^2(x-1)(x-2)$ is correct. NEVER write $x^{2(x-1)}(x-2)$ (parenthesized factors after exponent are multiplication, not part of exponent).
+  - Use {} ONLY when the ENTIRE exponent is a grouped expression like $x^{2n}$, $a^{n+1}$.
 
 Input questions:
 ${questionsText}

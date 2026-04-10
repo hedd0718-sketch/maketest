@@ -25,7 +25,12 @@ export function useFileUpload() {
         signal: AbortSignal.timeout(120_000),
       });
 
-      const data = await res.json();
+      let data: { questions?: unknown[]; error?: string };
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error('서버 응답을 처리할 수 없습니다. 다시 시도해주세요.');
+      }
 
       if (!res.ok) {
         throw new Error(data.error ?? '문제 추출에 실패했습니다.');

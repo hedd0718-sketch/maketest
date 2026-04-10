@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const maxDuration = 60;
-import { makeAnthropicClient, MODEL, GENERATION_PROMPT, normalizeLatex } from '@/lib/anthropic';
+import { makeAnthropicClient, MODEL, GENERATION_PROMPT, normalizeLatex, safeJsonParse } from '@/lib/anthropic';
 import { ExtractedQuestion, QuestionWithSimilars, SimilarQuestion } from '@/lib/types';
 
 const BATCH_SIZE = 10;
@@ -37,11 +37,7 @@ async function generateBatch(questions: ExtractedQuestion[]): Promise<QuestionWi
         solution: string;
       }>;
     }>;
-  } = (() => {
-    try { return JSON.parse(stripped); } catch {
-      return JSON.parse(stripped.replace(/(?<!\\)\\(?!["\\/bfnrtu])/g, '\\\\'));
-    }
-  })();
+  } = safeJsonParse(stripped);
 
   return questions.map((q) => {
     const match = parsed.results.find((r) => r.originalIndex === q.index);

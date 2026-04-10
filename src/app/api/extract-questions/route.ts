@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const maxDuration = 60;
-import { makeAnthropicClient, MODEL, EXTRACTION_PROMPT, normalizeLatex } from '@/lib/anthropic';
+import { makeAnthropicClient, MODEL, EXTRACTION_PROMPT, normalizeLatex, safeJsonParse } from '@/lib/anthropic';
 import { bufferToBase64, MAX_FILE_SIZE } from '@/lib/image-utils';
 import { ExtractedQuestion } from '@/lib/types';
 import type { ImageBlockParam, DocumentBlockParam } from '@anthropic-ai/sdk/resources/messages';
@@ -82,19 +82,22 @@ export async function POST(req: NextRequest) {
 
     let parsed: { questions: Array<{ index: number; text: string }> };
     try {
-      try { parsed = JSON.parse(stripped); } catch {
-        parsed = JSON.parse(stripped.replace(/(?<!\\)\\(?!["\\/bfnrtu])/g, '\\\\'));
-      }
+      parsed = safeJsonParse(stripped);
     } catch {
       console.error('Claude returned non-JSON:', rawText);
       return NextResponse.json({ error: '문제 추출에 실패했습니다. 다시 시도해주세요.' }, { status: 500 });
     }
 
-    const questions: ExtractedQuestion[] = (parsed.questions ?? []).map((q) => ({
-      id: crypto.randomUUID(),
-      index: q.index,
-      text: normalizeLatex(q.text),
-    }));
+    const questions: ExtractedQuestion[] = (parsed.questions ?? []).map((q) => {
+      const normalized = normalizeLatex(q.text);
+      console.log(`[Q${q.index}] raw:`, JSON.stringify(q.text));
+      console.log(`[Q${q.index}] normalized:`, JSON.stringify(normalized));
+      return {
+        id: crypto.randomUUID(),
+        index: q.index,
+        text: normalized,
+      };
+    });
 
     return NextResponse.json({ questions });
   } catch (error) {

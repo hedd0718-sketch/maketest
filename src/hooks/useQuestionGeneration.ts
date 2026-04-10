@@ -26,7 +26,12 @@ export function useQuestionGeneration() {
         signal: AbortSignal.timeout(180_000),
       });
 
-      const data = await res.json();
+      let data: { results?: unknown[]; error?: string };
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error('서버 응답을 처리할 수 없습니다. 다시 시도해주세요.');
+      }
 
       if (!res.ok) {
         throw new Error(data.error ?? '유사 문제 생성에 실패했습니다.');
