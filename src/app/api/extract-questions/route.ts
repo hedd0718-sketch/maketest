@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 export const maxDuration = 60;
-import { makeAnthropicClient, MODEL, EXTRACTION_PROMPT, normalizeLatex, safeJsonParse } from '@/lib/anthropic';
+import { makeAnthropicClient, VISION_MODEL, EXTRACTION_PROMPT, normalizeLatex, safeJsonParse } from '@/lib/anthropic';
 import { bufferToBase64, MAX_FILE_SIZE } from '@/lib/image-utils';
 import { ExtractedQuestion } from '@/lib/types';
 import type { ImageBlockParam, DocumentBlockParam } from '@anthropic-ai/sdk/resources/messages';
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     console.log('API KEY exists:', !!process.env.ANTHROPIC_API_KEY, 'len:', process.env.ANTHROPIC_API_KEY?.length);
     const anthropic = makeAnthropicClient();
     const response = await anthropic.messages.create({
-      model: MODEL,
+      model: VISION_MODEL,
       max_tokens: 8192,
       messages: [
         {

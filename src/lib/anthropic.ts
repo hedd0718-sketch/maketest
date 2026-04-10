@@ -58,7 +58,10 @@ export function makeAnthropicClient() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 }
 
-export const MODEL = 'claude-sonnet-4-5';
+// Use haiku for generate-similar (fast, fits Netlify 10s limit)
+// Use sonnet for extract-questions (better vision accuracy)
+export const MODEL = 'claude-haiku-4-5';
+export const VISION_MODEL = 'claude-sonnet-4-5';
 
 export const EXTRACTION_PROMPT = `You are an expert exam analyzer. Extract every question from this exam document.
 
