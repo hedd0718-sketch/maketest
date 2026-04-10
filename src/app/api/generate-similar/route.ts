@@ -4,7 +4,10 @@ export const maxDuration = 60;
 import { makeAnthropicClient, MODEL, GENERATION_PROMPT, normalizeLatex, safeJsonParse } from '@/lib/anthropic';
 import { ExtractedQuestion, QuestionWithSimilars, SimilarQuestion } from '@/lib/types';
 
-const BATCH_SIZE = 10;
+// Netlify free plan has a 10-second function timeout.
+// BATCH_SIZE=1 means each Claude API call handles 1 question (~5-7s).
+// All batches run in parallel via Promise.all, so total time ≈ max single call time.
+const BATCH_SIZE = 1;
 
 async function generateBatch(questions: ExtractedQuestion[]): Promise<QuestionWithSimilars[]> {
   const anthropic = makeAnthropicClient();
