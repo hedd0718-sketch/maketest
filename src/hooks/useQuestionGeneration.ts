@@ -14,38 +14,62 @@ export function useQuestionGeneration() {
     const pending: QuestionWithSimilars[] = questions.map((q) => ({
       original: q,
       similars: [],
-      status: 'generating',
+      status: 'generating' as const,
     }));
     setResults(pending);
 
-    try {
-      const res = await fetch('/api/generate-similar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ questions }),
-        signal: AbortSignal.timeout(180_000),
-      });
+    // Process each question individually to avoid serverless timeout
+    // Results update progressively as each completes
+    let hasAnyError = false;
 
-      let data: { results?: unknown[]; error?: string };
-      try {
-        data = await res.json();
-      } catch {
-        throw new Error('서버 응답을 처리할 수 없습니다. 다시 시도해주세요.');
-      }
+    await Promise.all(
+      questions.map(async (q) => {
+        try {
+          const res = await fetch('/api/generate-similar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ questions: [q] }),
+            signal: AbortSignal.timeout(30_000),
+          });
 
-      if (!res.ok) {
-        throw new Error(data.error ?? '유사 문제 생성에 실패했습니다.');
-      }
+          let data: { results?: unknown[]; error?: string };
+          try {
+            data = await res.json();
+          } catch {
+            throw new Error('서버 응답을 처리할 수 없습니다.');
+          }
 
-      setResults(data.results as QuestionWithSimilars[]);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다.';
-      setError(message);
-      setResults((prev) => prev.map((r) => ({ ...r, status: 'error' })));
-      throw err;
-    } finally {
-      setIsGenerating(false);
+          if (!res.ok) {
+            throw new Error(data.error ?? '유사 문제 생성에 실패했습니다.');
+          }
+
+          const resultItem = (data.results as QuestionWithSimilars[] | undefined)?.[0];
+
+          setResults((prev) =>
+            prev.map((r) =>
+              r.original.index === q.index
+                ? (resultItem ?? { original: q, similars: [], status: 'error' as const })
+                : r
+            )
+          );
+        } catch {
+          hasAnyError = true;
+          setResults((prev) =>
+            prev.map((r) =>
+              r.original.index === q.index
+                ? { ...r, status: 'error' as const }
+                : r
+            )
+          );
+        }
+      })
+    );
+
+    if (hasAnyError) {
+      setError('일부 문제의 유사 문제 생성에 실패했습니다. 해당 문제를 다시 시도해주세요.');
     }
+
+    setIsGenerating(false);
   };
 
   const reset = () => {
