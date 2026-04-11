@@ -30,7 +30,10 @@ export function safeJsonParse<T>(raw: string): T {
     '\\\\'
   );
 
-  return JSON.parse(escaped);
+  // Step 3: Remove trailing commas before ] or } (common LLM JSON error)
+  const cleaned = escaped.replace(/,\s*([\]}])/g, '$1');
+
+  return JSON.parse(cleaned);
 }
 
 /**
@@ -110,7 +113,7 @@ CRITICAL superscript/subscript rules — DO NOT over-group:
 
 export const GENERATION_PROMPT = (questionsText: string) => `You are an expert exam question writer for Korean high school and university entrance exams.
 
-For each question below, generate exactly 2 NEW similar questions. For each provide:
+For each question below, generate exactly 1 NEW similar question. For each provide:
 1. The question text — same format as original, include answer choices ①②③④⑤ if original has them. If the original describes a graph in brackets, include a similar graph description in brackets.
 2. A brief explanation of what concept it tests
 3. The correct answer (e.g. "②", "3", "$x = -1$ 또는 $x = 3$")
@@ -144,12 +147,6 @@ Return ONLY valid JSON, no markdown fences, no explanation:
           "explanation": "Brief concept note",
           "answer": "② or exact value with LaTeX",
           "solution": "**풀이**\\n\\n**1단계:** ...\\n\\n**2단계:** ...\\n\\n따라서 답은 ②"
-        },
-        {
-          "text": "...",
-          "explanation": "...",
-          "answer": "...",
-          "solution": "..."
         }
       ]
     }

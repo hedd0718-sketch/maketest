@@ -9,12 +9,9 @@ import { ExtractedQuestion, QuestionWithSimilars, SimilarQuestion } from '@/lib/
 // All batches run in parallel via Promise.all, so total time ≈ max single call time.
 const BATCH_SIZE = 1;
 
-async function generateBatch(questions: ExtractedQuestion[]): Promise<QuestionWithSimilars[]> {
-  const anthropic = makeAnthropicClient();
-  const questionsText = questions
-    .map((q) => `[Q${q.index}]: ${q.text}`)
-    .join('\n\n');
+const MAX_RETRIES = 2;
 
+async function callClaude(anthropic: ReturnType<typeof makeAnthropicClient>, questionsText: string): Promise<string> {
   const response = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 4096,
@@ -27,10 +24,16 @@ async function generateBatch(questions: ExtractedQuestion[]): Promise<QuestionWi
   });
 
   const rawText = response.content[0].type === 'text' ? response.content[0].text : '';
-  const stripped = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  return rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+}
 
-  // Try as-is first; if fails due to invalid LaTeX backslashes, fix and retry
-  const parsed: {
+async function generateBatch(questions: ExtractedQuestion[]): Promise<QuestionWithSimilars[]> {
+  const anthropic = makeAnthropicClient();
+  const questionsText = questions
+    .map((q) => `[Q${q.index}]: ${q.text}`)
+    .join('\n\n');
+
+  let parsed: {
     results: Array<{
       originalIndex: number;
       similars: Array<{
@@ -40,11 +43,29 @@ async function generateBatch(questions: ExtractedQuestion[]): Promise<QuestionWi
         solution: string;
       }>;
     }>;
-  } = safeJsonParse(stripped);
+  } | null = null;
 
-  return questions.map((q) => {
-    const match = parsed.results.find((r) => r.originalIndex === q.index);
-    const similars: SimilarQuestion[] = (match?.similars ?? []).slice(0, 2).map((s) => ({
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    const stripped = await callClaude(anthropic, questionsText);
+
+    try {
+      parsed = safeJsonParse(stripped);
+      break;
+    } catch (e) {
+      console.warn(`[generate-similar] JSON parse failed (attempt ${attempt + 1}/${MAX_RETRIES}):`, e);
+      if (attempt === MAX_RETRIES - 1) throw e;
+    }
+  }
+
+  if (!parsed) throw new Error('Failed to parse after retries');
+
+  return questions.map((q, idx) => {
+    // When BATCH_SIZE=1, Claude often returns originalIndex=1 regardless of actual index,
+    // or returns it as a string like "Q6". Match by position first, then by index.
+    const match = parsed!.results[idx]
+      ?? parsed!.results.find((r) => Number(r.originalIndex) === q.index)
+      ?? parsed!.results[0];
+    const similars: SimilarQuestion[] = (match?.similars ?? []).slice(0, 1).map((s) => ({
       id: crypto.randomUUID(),
       text: normalizeLatex(s.text),
       explanation: normalizeLatex(s.explanation),
